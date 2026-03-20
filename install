@@ -1,0 +1,353 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ─── Package manager detection ───────────────────────────────────────────────
+
+PM=""
+
+detect_pm() {
+    if command -v brew &>/dev/null; then
+        PM="brew"
+    elif command -v pacman &>/dev/null; then
+        PM="pacman"
+    elif command -v apt-get &>/dev/null; then
+        PM="apt-get"
+    elif command -v dnf &>/dev/null; then
+        PM="dnf"
+    elif command -v yum &>/dev/null; then
+        PM="yum"
+    fi
+}
+
+bootstrap_pm() {
+    detect_pm
+    if [ -z "$PM" ]; then
+        echo "No package manager found (brew, pacman, apt-get, dnf, or yum)."
+        printf "Install Homebrew? [y/N] "
+        read -r ans
+        if [[ "${ans:-}" =~ ^[Yy]$ ]]; then
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            for brew_path in /opt/homebrew/bin /usr/local/bin; do
+                if [ -x "$brew_path/brew" ]; then
+                    export PATH="$brew_path:$PATH"
+                    break
+                fi
+            done
+            PM="brew"
+        else
+            echo "A package manager is required. Exiting." >&2
+            exit 1
+        fi
+    fi
+}
+
+# ─── gum bootstrap ───────────────────────────────────────────────────────────
+
+bootstrap_gum() {
+    command -v gum &>/dev/null && return
+
+    echo "Installing gum (required for this installer)..."
+    case "$PM" in
+    brew)
+        brew install gum
+        ;;
+    apt-get)
+        sudo mkdir -p /etc/apt/keyrings
+        curl -fsSL https://repo.charm.sh/apt/gpg.key |
+            sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+        echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" |
+            sudo tee /etc/apt/sources.list.d/charm.list >/dev/null
+        sudo apt-get update -qq && sudo apt-get install -y gum
+        ;;
+    pacman)
+        sudo pacman -Syu --noconfirm gum
+        ;;
+    dnf | yum)
+        sudo tee /etc/yum.repos.d/charm.repo >/dev/null <<'REPO'
+[charm]
+name=Charm
+baseurl=https://repo.charm.sh/yum/
+enabled=1
+gpgcheck=1
+gpgkey=https://repo.charm.sh/yum/gpg.key
+REPO
+        sudo "$PM" install -y gum
+        ;;
+    *)
+        echo "Cannot install gum automatically. Please install it: https://github.com/charmbracelet/gum" >&2
+        exit 1
+        ;;
+    esac
+}
+
+# ─── Package name lookup ─────────────────────────────────────────────────────
+# Returns package name for a given tool + package manager, or empty if unavailable.
+
+pkg_name() {
+    local tool="$1" pm="$2"
+    case "$tool" in
+    neovim)
+        echo "neovim"
+        ;;
+    tmux)
+        echo "tmux"
+        ;;
+    starship)
+        case "$pm" in brew | pacman) echo "starship" ;; *) echo "" ;; esac
+        ;;
+    eza)
+        case "$pm" in brew | pacman | apt-get) echo "eza" ;; *) echo "" ;; esac
+        ;;
+    fzf)
+        echo "fzf"
+        ;;
+    bat)
+        echo "bat"
+        ;;
+    ripgrep)
+        echo "ripgrep"
+        ;;
+    fd)
+        case "$pm" in
+        brew | pacman) echo "fd" ;;
+        apt-get | dnf | yum) echo "fd-find" ;;
+        *) echo "" ;;
+        esac
+        ;;
+    zoxide)
+        case "$pm" in brew | pacman | apt-get) echo "zoxide" ;; *) echo "" ;; esac
+        ;;
+    try)
+        echo ""
+        ;;
+    btop)
+        echo "btop"
+        ;;
+    lazydocker)
+        case "$pm" in brew | pacman) echo "lazydocker" ;; *) echo "" ;; esac
+        ;;
+    lazygit)
+        case "$pm" in brew | pacman) echo "lazygit" ;; *) echo "" ;; esac
+        ;;
+    *)
+        echo ""
+        ;;
+    esac
+}
+
+# ─── Custom install commands ─────────────────────────────────────────────────
+# Returns a self-contained bash script string for tools not available via PM.
+
+custom_install_cmd() {
+    case "$1" in
+    starship)
+        echo 'curl -sS https://starship.rs/install.sh | sh -s -- --yes'
+        ;;
+    zoxide)
+        echo 'curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh'
+        ;;
+    lazydocker)
+        echo 'curl -s https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash'
+        ;;
+    lazygit)
+        cat <<'CMD'
+set -e
+tag=$(curl -s https://api.github.com/repos/jesseduffield/lazygit/releases/latest \
+  | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
+os=$(uname -s)
+arch=$(uname -m)
+case "$arch" in arm64|aarch64) arch="arm64" ;; *) arch="x86_64" ;; esac
+tmpdir=$(mktemp -d)
+url="https://github.com/jesseduffield/lazygit/releases/download/v${tag}/lazygit_${tag}_${os}_${arch}.tar.gz"
+curl -sL "$url" | tar -xz -C "$tmpdir" lazygit
+sudo mv "$tmpdir/lazygit" /usr/local/bin/lazygit
+rm -rf "$tmpdir"
+CMD
+        ;;
+    try)
+        echo 'gem install try-cli'
+        ;;
+    esac
+}
+
+# ─── Step 1: Install configurations ──────────────────────────────────────────
+
+install_configs() {
+    local share_dir="$HOME/.local/share/omarchy"
+    local backup_dir="$HOME/.omalarkey-backups/$(date +%Y-%m-%dT%H:%M:%S)"
+
+    mkdir -p "$share_dir"
+    ln -sfn "$SCRIPT_DIR/omarchy/default" "$share_dir/default"
+    ln -sfn "$SCRIPT_DIR/omarchy/themes" "$share_dir/themes"
+
+    mkdir -p "$HOME/.config"
+    for dir in btop ghostty git lazygit opencode tmux; do
+        local src="$SCRIPT_DIR/omarchy/config/$dir"
+        local dest="$HOME/.config/$dir"
+        if [ -d "$dest" ] && [ ! -L "$dest" ]; then
+            mkdir -p "$backup_dir"
+            mv "$dest" "$backup_dir/"
+        fi
+        [ -L "$dest" ] && rm "$dest"
+        cp -r "$src" "$HOME/.config/"
+    done
+}
+
+# ─── Step 2: Install theme scripts and set initial theme ─────────────────────
+
+install_themes() {
+    mkdir -p "$HOME/.config/omarchy/themes"
+    mkdir -p "$HOME/.local/bin"
+
+    for script in "$SCRIPT_DIR/bin/"omarchy-theme-*; do
+        local name
+        name="$(basename "$script")"
+        cp "$script" "$HOME/.local/bin/$name"
+        chmod +x "$HOME/.local/bin/$name"
+        # Also overwrite the upstream script if omarchy is installed
+        if [[ -d $HOME/.local/share/omarchy/bin ]]; then
+            cp "$script" "$HOME/.local/share/omarchy/bin/$name"
+            chmod +x "$HOME/.local/share/omarchy/bin/$name"
+        fi
+    done
+
+    mkdir -p "$HOME/.config/btop/themes"
+    ln -snf "$HOME/.config/omarchy/current/theme/btop.theme" \
+        "$HOME/.config/btop/themes/current.theme"
+
+    PATH="$HOME/.local/bin:$PATH" omarchy-theme-set "tokyo-night"
+}
+
+# ─── Steps 3 & 4: Detect and install tools ────────────────────────────────────
+
+RECOMMENDED_TOOLS=(neovim tmux starship eza fzf bat ripgrep fd zoxide try)
+OPTIONAL_TOOLS=(btop lazydocker lazygit)
+
+is_installed() {
+    case "$1" in
+    neovim) command -v nvim &>/dev/null ;;
+    ripgrep) command -v rg &>/dev/null ;;
+    fd) command -v fd &>/dev/null || command -v fdfind &>/dev/null ;;
+    *) command -v "$1" &>/dev/null ;;
+    esac
+}
+
+select_and_install_tools() {
+    local missing_recommended=()
+    local missing_optional=()
+
+    for tool in "${RECOMMENDED_TOOLS[@]}"; do
+        is_installed "$tool" || missing_recommended+=("$tool")
+    done
+    for tool in "${OPTIONAL_TOOLS[@]}"; do
+        is_installed "$tool" || missing_optional+=("$tool")
+    done
+
+    # Safely combine arrays (handles empty arrays under set -u)
+    local all_missing=()
+    [ ${#missing_recommended[@]} -gt 0 ] && all_missing+=("${missing_recommended[@]}")
+    [ ${#missing_optional[@]} -gt 0 ] && all_missing+=("${missing_optional[@]}")
+
+    if [ ${#all_missing[@]} -eq 0 ]; then
+        gum style --foreground 2 "All recommended tools are already installed."
+        return
+    fi
+
+    gum style --faint "Space to toggle · Enter to confirm · Pre-selected = recommended"
+
+    local chosen=""
+    if [ ${#missing_recommended[@]} -gt 0 ]; then
+        local selected_csv
+        selected_csv="$(
+            IFS=,
+            echo "${missing_recommended[*]}"
+        )"
+        chosen="$(gum choose --no-limit --selected="$selected_csv" "${all_missing[@]}")" || true
+    else
+        chosen="$(gum choose --no-limit "${all_missing[@]}")" || true
+    fi
+
+    if [ -z "$chosen" ]; then
+        gum style --faint "No tools selected."
+        return
+    fi
+
+    local pm_batch=()
+    local custom_tools=()
+
+    while IFS= read -r tool; do
+        [ -z "$tool" ] && continue
+        local pkg
+        pkg="$(pkg_name "$tool" "$PM")"
+        if [ -n "$pkg" ]; then
+            pm_batch+=("$pkg")
+        else
+            custom_tools+=("$tool")
+        fi
+    done <<<"$chosen"
+
+    if [ ${#pm_batch[@]} -gt 0 ]; then
+        local pm_cmd
+        case "$PM" in
+        brew) pm_cmd="brew install ${pm_batch[*]}" ;;
+        apt-get) pm_cmd="sudo apt-get install -y ${pm_batch[*]}" ;;
+        pacman) pm_cmd="sudo pacman -Syu --noconfirm ${pm_batch[*]}" ;;
+        dnf | yum) pm_cmd="sudo $PM install -y ${pm_batch[*]}" ;;
+        esac
+        gum spin --title "Installing via $PM..." -- bash -c "$pm_cmd"
+    fi
+
+    for tool in "${custom_tools[@]}"; do
+        local cmd
+        cmd="$(custom_install_cmd "$tool")"
+        gum spin --title "Installing $tool..." -- bash -c "$cmd"
+    done
+
+    gum style --foreground 2 "✓ Tools installed"
+}
+
+# ─── Main ────────────────────────────────────────────────────────────────────
+
+main() {
+    bootstrap_pm
+    bootstrap_gum
+
+    echo ""
+    gum style \
+        --border double \
+        --border-foreground 212 \
+        --padding "1 3" \
+        --bold \
+        "  omalarkey installer  "
+    echo ""
+
+    gum style --bold "Step 1 · Configurations"
+    if gum confirm "Install configurations from omarchy?"; then
+        install_configs
+        gum style --foreground 2 "✓ Configurations installed"
+    else
+        gum style --faint "Skipped."
+    fi
+
+    echo ""
+
+    gum style --bold "Step 2 · Themes"
+    if gum confirm "Set up theme management?"; then
+        install_themes
+        gum style --foreground 2 "✓ Themes set up"
+    else
+        gum style --faint "Skipped."
+    fi
+
+    echo ""
+
+    gum style --bold "Steps 3 & 4 · Tools"
+    select_and_install_tools
+
+    echo ""
+    gum style --foreground 2 --bold "✓ Done!"
+}
+
+main "$@"

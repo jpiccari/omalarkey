@@ -1,0 +1,10 @@
+#!/bin/bash
+
+OMARCHY_PATH="${OMARCHY_PATH:-$HOME/.local/share/omarchy}"
+
+{
+  find ~/.config/omarchy/themes/ -mindepth 1 -maxdepth 1 \( -type d -o -type l \) 2>/dev/null | while IFS= read -r _f; do basename "$_f"; done
+  find "$OMARCHY_PATH/themes/" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while IFS= read -r _f; do basename "$_f"; done
+} | sort -u | while IFS= read -r name; do
+  echo "$name" | awk -F- '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2); print}' OFS=' '
+done
