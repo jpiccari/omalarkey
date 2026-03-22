@@ -259,8 +259,33 @@ install_configs() {
         cat "$bashrc_dest"
     } >"$bashrc_dest.tmp" && mv "$bashrc_dest.tmp" "$bashrc_dest"
 
-    local existing_aliases
-    existing_aliases="$(alias 2>/dev/null || true)"
+    local existing_aliases user_shell
+    user_shell="$(basename "${SHELL:-bash}")"
+
+    existing_aliases="$(
+      case "$user_shell" in
+        zsh)
+          "${SHELL}" -c '
+            [[ -f ~/.zshrc ]] && source ~/.zshrc 2>/dev/null
+            alias -L
+          ' 2>/dev/null
+          ;;
+        bash)
+          "${SHELL}" -c '
+            [[ -f ~/.bashrc ]] && source ~/.bashrc 2>/dev/null
+            [[ -f ~/.bash_profile ]] && source ~/.bash_profile 2>/dev/null
+            [[ -f ~/.bash_aliases ]] && source ~/.bash_aliases 2>/dev/null
+            alias
+          ' 2>/dev/null
+          ;;
+        *)
+          "${SHELL}" -c '
+            [[ -f ~/.profile ]] && source ~/.profile 2>/dev/null
+            alias 2>/dev/null
+          ' 2>/dev/null
+          ;;
+      esac | grep "^alias " || true
+    )"
     if [[ -n $existing_aliases ]]; then
         {
             printf '\n# ── Aliases preserved by omalarkey installer ────────────────────────────────\n'
