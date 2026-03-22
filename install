@@ -195,6 +195,10 @@ install_configs() {
     [[ -L "$starship_dest" ]] && rm "$starship_dest"
     ln -sf "$starship_src" "$starship_dest"
 
+    local git_name git_email
+    git_name="$(git config user.name 2>/dev/null || true)"
+    git_email="$(git config user.email 2>/dev/null || true)"
+
     for dir in btop ghostty git lazygit opencode tmux; do
         local src="$SCRIPT_DIR/omarchy/config/$dir"
         local dest="$HOME/.config/$dir"
@@ -204,7 +208,24 @@ install_configs() {
         fi
         [ -L "$dest" ] && rm "$dest"
         cp -r "$src" "$HOME/.config/"
+
+        if [[ $dir == "tmux" ]]; then
+            local legacy_tmux="$HOME/.tmux.conf"
+            if [[ -f "$legacy_tmux" && ! -L "$legacy_tmux" ]]; then
+                mkdir -p "$backup_dir"
+                mv "$legacy_tmux" "$backup_dir/"
+            elif [[ -L "$legacy_tmux" ]]; then
+                rm "$legacy_tmux"
+            fi
+        fi
     done
+
+    if [[ -n $git_name ]]; then
+        git config --file "$HOME/.config/git/config" user.name "$git_name"
+    fi
+    if [[ -n $git_email ]]; then
+        git config --file "$HOME/.config/git/config" user.email "$git_email"
+    fi
 
     local bashrc_src="$SCRIPT_DIR/omarchy/default/bashrc"
     local bashrc_dest
@@ -218,6 +239,24 @@ install_configs() {
         mv "$bashrc_dest" "$backup_dir/"
     fi
     cp "$bashrc_src" "$bashrc_dest"
+
+    local install_path="$ORIGINAL_PATH"
+    if [[ $PM == "brew" ]]; then
+        local brew_prefix
+        brew_prefix="$(brew --prefix)"
+        if [[ :${install_path}: != *:${brew_prefix}/bin:* ]]; then
+            install_path="${brew_prefix}/bin:${brew_prefix}/sbin:${install_path}"
+        fi
+    fi
+
+    {
+        printf '# ── Preserved by omalarkey installer ─────────────────────────────────────────\n'
+        printf 'export PATH="%s:$PATH"\n' "$install_path"
+        printf 'export VISUAL=nvim\n'
+        printf 'export EDITOR=nvim\n'
+        printf '# ─────────────────────────────────────────────────────────────────────────────\n'
+        cat "$bashrc_dest"
+    } >"$bashrc_dest.tmp" && mv "$bashrc_dest.tmp" "$bashrc_dest"
 
 }
 
@@ -350,6 +389,7 @@ select_and_install_tools() {
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 main() {
+    ORIGINAL_PATH="$PATH"
     git submodule update --init --recursive
     bootstrap_pm
     bootstrap_gum
