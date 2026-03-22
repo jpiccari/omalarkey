@@ -74,14 +74,11 @@ afterthoughts or bloated with features.
 ## macOS: get a real Bash
 
 macOS ships Bash 3.2 (from 2007, for licensing reasons). This project requires
-**Bash 4+**.
+**Bash 4.2+**.
 
 ```bash
 brew install bash
 ```
-
-You don't need to make it your login shell — just make sure it's on your PATH
-and `bash install` uses it.
 
 To check what you have:
 

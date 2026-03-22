@@ -179,10 +179,22 @@ install_configs() {
     local backup_dir="$HOME/.omalarkey-backups/$(date +%Y-%m-%dT%H:%M:%S)"
 
     mkdir -p "$share_dir"
-    ln -sfn "$SCRIPT_DIR/omarchy/default" "$share_dir/default"
-    ln -sfn "$SCRIPT_DIR/omarchy/themes" "$share_dir/themes"
+    rm -rf "$share_dir/default"
+    cp -r "$SCRIPT_DIR/omarchy/default" "$share_dir/default"
+    rm -rf "$share_dir/themes"
+    cp -r "$SCRIPT_DIR/omarchy/themes" "$share_dir/themes"
 
     mkdir -p "$HOME/.config"
+
+    local starship_src="$SCRIPT_DIR/omarchy/config/starship.toml"
+    local starship_dest="$HOME/.config/starship.toml"
+    if [[ -f "$starship_dest" && ! -L "$starship_dest" ]]; then
+        mkdir -p "$backup_dir"
+        mv "$starship_dest" "$backup_dir/"
+    fi
+    [[ -L "$starship_dest" ]] && rm "$starship_dest"
+    ln -sf "$starship_src" "$starship_dest"
+
     for dir in btop ghostty git lazygit opencode tmux; do
         local src="$SCRIPT_DIR/omarchy/config/$dir"
         local dest="$HOME/.config/$dir"
@@ -193,20 +205,34 @@ install_configs() {
         [ -L "$dest" ] && rm "$dest"
         cp -r "$src" "$HOME/.config/"
     done
+
+    local bashrc_src="$SCRIPT_DIR/omarchy/default/bashrc"
+    local bashrc_dest
+    if [[ "$(uname)" == "Darwin" ]]; then
+        bashrc_dest="$HOME/.bash_profile"
+    else
+        bashrc_dest="$HOME/.bashrc"
+    fi
+    if [[ -f "$bashrc_dest" && ! -L "$bashrc_dest" ]]; then
+        mkdir -p "$backup_dir"
+        mv "$bashrc_dest" "$backup_dir/"
+    fi
+    cp "$bashrc_src" "$bashrc_dest"
+
 }
 
-# ─── Step 2: Install theme scripts and set initial theme ─────────────────────
+# ─── Step 2: Install theme scripts ───────────────────────────────────────────
 
 install_themes() {
     mkdir -p "$HOME/.config/omarchy/themes"
     mkdir -p "$HOME/.local/bin"
 
-    for script in "$SCRIPT_DIR/bin/"omarchy-theme-*; do
+    # Copy upstream theme scripts and hooks
+    for script in "$SCRIPT_DIR/omarchy/bin/"omarchy-theme-* "$SCRIPT_DIR/omarchy/bin/"omarchy-hook; do
         local name
         name="$(basename "$script")"
         cp "$script" "$HOME/.local/bin/$name"
         chmod +x "$HOME/.local/bin/$name"
-        # Also overwrite the upstream script if omarchy is installed
         if [[ -d $HOME/.local/share/omarchy/bin ]]; then
             cp "$script" "$HOME/.local/share/omarchy/bin/$name"
             chmod +x "$HOME/.local/share/omarchy/bin/$name"
@@ -216,8 +242,21 @@ install_themes() {
     mkdir -p "$HOME/.config/btop/themes"
     ln -snf "$HOME/.config/omarchy/current/theme/btop.theme" \
         "$HOME/.config/btop/themes/current.theme"
+}
 
-    PATH="$HOME/.local/bin:$PATH" omarchy-theme-set "tokyo-night"
+# ─── Apply patches ────────────────────────────────────────────────────────────
+
+apply_patches() {
+    local patches_dir="$SCRIPT_DIR/patches"
+    [[ -d "$patches_dir" ]] || return
+
+    local os_prefix
+    os_prefix="$(uname)"
+
+    for patch_file in "$patches_dir"/common_*.patch "$patches_dir/${os_prefix}"_*.patch; do
+        [[ -f "$patch_file" ]] || continue
+        patch -p1 --forward --directory="$HOME" <"$patch_file" || true
+    done
 }
 
 # ─── Steps 3 & 4: Detect and install tools ────────────────────────────────────
@@ -333,12 +372,22 @@ main() {
 
     echo ""
 
+    local themes_installed=false
     gum style --bold "Step 2 · Themes"
     if gum confirm "Set up theme management?"; then
         install_themes
+        themes_installed=true
         gum style --foreground 2 "✓ Themes set up"
     else
         gum style --faint "Skipped."
+    fi
+
+    echo ""
+
+    apply_patches
+
+    if [[ $themes_installed == true ]]; then
+        PATH="$HOME/.local/bin:$PATH" omarchy-theme-set "tokyo-night"
     fi
 
     echo ""

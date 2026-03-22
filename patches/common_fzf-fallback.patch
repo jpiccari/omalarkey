@@ -1,0 +1,12 @@
+--- a/.local/share/omarchy/default/bash/init
++++ b/.local/share/omarchy/default/bash/init
+@@ -18,6 +18,3 @@ if command -v fzf &> /dev/null; then
+-  if [[ -f /usr/share/fzf/completion.bash ]]; then
+-    source /usr/share/fzf/completion.bash
+-  fi
+-  if [[ -f /usr/share/fzf/key-bindings.bash ]]; then
+-    source /usr/share/fzf/key-bindings.bash
+-  fi
++  fzf_source="$HOME/.local/share/fzf.bash"
++  [[ ! -f "$fzf_source" ]] && fzf --bash > "$fzf_source"
++  source "$fzf_source"

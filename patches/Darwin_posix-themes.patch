@@ -1,0 +1,66 @@
+--- a/.local/bin/omarchy-theme-current
++++ b/.local/bin/omarchy-theme-current
+@@ -3,7 +3,7 @@
+ THEME_NAME_PATH="$HOME/.config/omarchy/current/theme.name"
+
+ if [[ -f $THEME_NAME_PATH ]]; then
+-  cat $THEME_NAME_PATH | sed -E 's/(^|-)([a-z])/\1\u\2/g; s/-/ /g'
++  awk -F- '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2); print}' OFS=' ' $THEME_NAME_PATH
+ else
+   echo "Unknown"
+ fi
+--- a/.local/bin/omarchy-theme-list
++++ b/.local/bin/omarchy-theme-list
+@@ -1,8 +1,8 @@
+ #!/bin/bash
+
+ {
+-  find ~/.config/omarchy/themes/ -mindepth 1 -maxdepth 1 \( -type d -o -type l \) -printf '%f\n'
+-  find "$OMARCHY_PATH/themes/" -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
+-} | sort -u | while read -r name; do
+-  echo "$name" | sed -E 's/(^|-)([a-z])/\1\u\2/g; s/-/ /g'
++  find ~/.config/omarchy/themes/ -mindepth 1 -maxdepth 1 \( -type d -o -type l \) 2>/dev/null | while IFS= read -r _f; do basename "$_f"; done
++  find "$OMARCHY_PATH/themes/" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while IFS= read -r _f; do basename "$_f"; done
++} | sort -u | while IFS= read -r name; do
++  echo "$name" | awk -F- '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2); print}' OFS=' '
+ done
+--- a/.local/bin/omarchy-theme-remove
++++ b/.local/bin/omarchy-theme-remove
+@@ -4,7 +4,7 @@
+ # Usage: omarchy-theme-remove <theme-name>
+
+ if [[ -z $1 ]]; then
+-  mapfile -t extra_themes < <(find ~/.config/omarchy/themes -mindepth 1 -maxdepth 1 -type d ! -xtype l -printf '%f\n')
++  mapfile -t extra_themes < <(find ~/.config/omarchy/themes -mindepth 1 -maxdepth 1 -type d | while IFS= read -r _f; do basename "$_f"; done)
+
+   if (( ${#extra_themes[@]} > 0 )); then
+     THEME_NAME=$(printf '%s\n' "${extra_themes[@]}" | sort | gum choose --header="Remove extra theme")
+--- a/.local/bin/omarchy-theme-set
++++ b/.local/bin/omarchy-theme-set
+@@ -35,26 +35,5 @@
+ # Store theme name for reference
+ echo "$THEME_NAME" >"$HOME/.config/omarchy/current/theme.name"
+
+-# Change background with theme
+-omarchy-theme-bg-next
+-
+-# Restart components to apply new theme
+-if pgrep -x waybar >/dev/null; then
+-  omarchy-restart-waybar
+-fi
+-omarchy-restart-swayosd
+-omarchy-restart-terminal
+-omarchy-restart-hyprctl
+-omarchy-restart-btop
+-omarchy-restart-opencode
+-omarchy-restart-mako
+-
+-# Change app-specific themes
+-omarchy-theme-set-gnome
+-omarchy-theme-set-browser
+-omarchy-theme-set-vscode
+-omarchy-theme-set-obsidian
+-omarchy-theme-set-keyboard
+-
+ # Call hook on theme set
+ omarchy-hook theme-set "$THEME_NAME"
