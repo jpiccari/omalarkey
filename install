@@ -251,12 +251,23 @@ install_configs() {
 
     {
         printf '# ── Preserved by omalarkey installer ─────────────────────────────────────────\n'
-        printf 'export PATH="%s:$PATH"\n' "$install_path"
+        printf 'export PATH="$HOME/.local/bin:$PATH" # minimal path\n'
+        printf 'export PATH="%s:$PATH" # path detected by omalarkey at instal time\n' "$install_path"
         printf 'export VISUAL=nvim\n'
         printf 'export EDITOR=nvim\n'
         printf '# ─────────────────────────────────────────────────────────────────────────────\n'
         cat "$bashrc_dest"
     } >"$bashrc_dest.tmp" && mv "$bashrc_dest.tmp" "$bashrc_dest"
+
+    local existing_aliases
+    existing_aliases="$(alias 2>/dev/null || true)"
+    if [[ -n $existing_aliases ]]; then
+        {
+            printf '\n# ── Aliases preserved by omalarkey installer ────────────────────────────────\n'
+            printf '%s\n' "$existing_aliases"
+            printf '# ─────────────────────────────────────────────────────────────────────────────\n'
+        } >>"$bashrc_dest"
+    fi
 
 }
 
