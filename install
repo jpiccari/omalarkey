@@ -387,7 +387,9 @@ main() {
     apply_patches
 
     if [[ $themes_installed == true ]]; then
-        PATH="$HOME/.local/bin:$PATH" omarchy-theme-set "tokyo-night"
+        PATH="$HOME/.local/bin:$PATH" \
+            OMARCHY_PATH="$HOME/.local/share/omarchy" \
+            omarchy-theme-set "tokyo-night"
     fi
 
     echo ""
