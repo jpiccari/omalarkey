@@ -350,6 +350,7 @@ select_and_install_tools() {
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 main() {
+    git submodule update --init --recursive
     bootstrap_pm
     bootstrap_gum
 
